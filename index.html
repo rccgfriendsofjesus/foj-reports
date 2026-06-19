@@ -302,10 +302,10 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
   <div id="docChips"></div>
   <div class="doc-dd-row">
     <select id="docDrop"><option value="">— select a document to add —</option></select>
-    <label class="upl" id="docUplLbl" style="display:none">
+    <label class="upl" id="docUplLbl" style="display:none" onclick="triggerDocUpload()">
       <span><i class="ti ti-upload"></i> Upload</span>
-      <input type="file" id="docFileInp" accept="image/*,.pdf,.doc,.docx">
     </label>
+    <input type="file" id="docFileInp" accept="image/*,.pdf,.doc,.docx" style="display:none">
     <button class="btn sm" id="docCamBtn" style="display:none;background:#E8F5E9;border-color:#66BB6A;color:#1B5E20" onclick="openWebcam()">
       <i class="ti ti-camera"></i> Camera
     </button>
@@ -375,7 +375,8 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
     <div class="fg" style="margin-bottom:1.25rem">
       <label>File (optional)</label>
       <div style="display:flex;gap:8px;margin-top:4px">
-        <label class="upl"><span id="customDocFileLbl"><i class="ti ti-upload"></i> Upload</span><input type="file" id="customDocFile" accept="image/*,.pdf,.doc,.docx" onchange="onCustomDocFile()"></label>
+        <label class="upl" onclick="triggerCustomUpload()"><span id="customDocFileLbl"><i class="ti ti-upload"></i> Upload</span></label>
+        <input type="file" id="customDocFile" accept="image/*,.pdf,.doc,.docx" style="display:none">
         <button class="btn sm" style="background:#E8F5E9;border-color:#66BB6A;color:#1B5E20" onclick="openCustomCam()"><i class="ti ti-camera"></i> Camera</button>
       </div>
     </div>
@@ -447,36 +448,46 @@ function sbFetch(table, method, body, match) {
 }
 
 
-function uploadToStorage(file, cb) {
-  var ext = file.name.split('.').pop();
-  var fname = Date.now() + '_' + Math.random().toString(36).substr(2,6) + '.' + ext;
-  var url = SB_URL + '/storage/v1/object/documents/' + fname;
-  fetch(url, {
-    method: 'POST',
-    headers: {
-      'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + SB_KEY,
-      'Content-Type': file.type || 'application/octet-stream',
-      'x-upsert': 'true'
-    },
-    body: file
-  })
-  .then(function(r){
-    if(!r.ok) return r.text().then(function(t){throw new Error(t);});
-    var pub = SB_URL + '/storage/v1/object/public/documents/' + fname;
-    cb(null, pub);
-  })
-  .catch(function(e){cb(e,null);});
+/* Compress image to ~60KB base64 and store inline - no storage bucket needed */
+function compressImage(file, cb) {
+  if (!file.type.startsWith('image/')) {
+    /* non-image files: just store filename, no preview */
+    cb(null, {dataUrl: '', fileName: file.name});
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var MAX = 800;
+      var w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+      cb(null, {dataUrl: dataUrl, fileName: file.name});
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
-function uploadCamToStorage(dataUrl, cb) {
-  var byteStr = atob(dataUrl.split(',')[1]);
-  var ab = new ArrayBuffer(byteStr.length);
-  var ia = new Uint8Array(ab);
-  for(var i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
-  var blob = new Blob([ab],{type:'image/jpeg'});
-  var file = new File([blob],'cam_'+Date.now()+'.jpg',{type:'image/jpeg'});
-  uploadToStorage(file, cb);
+function compressCam(dataUrl, cb) {
+  var img = new Image();
+  img.onload = function() {
+    var MAX = 800;
+    var w = img.width, h = img.height;
+    if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+    if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    var compressed = canvas.toDataURL('image/jpeg', 0.6);
+    cb(null, {dataUrl: compressed, fileName: 'camera_photo.jpg'});
+  };
+  img.src = dataUrl;
 }
 
 var CAT_DOCS = {
@@ -618,30 +629,44 @@ function buildDocDD(cat){
   for(var i=0;i<docs.length;i++){if(!FDOCS[docs[i]]){var op=document.createElement('option');op.value=docs[i];op.textContent=docs[i];dd.appendChild(op);}}
   g('docUplLbl').style.display='none'; g('docCamBtn').style.display='none'; g('docMarkBtn').style.display='none';
 }
-g('docDrop').onchange=function(){var v=gv('docDrop');if(!v){g('docUplLbl').style.display='none';g('docCamBtn').style.display='none';g('docMarkBtn').style.display='none';return;}g('docUplLbl').style.display='';g('docCamBtn').style.display='';g('docMarkBtn').style.display='';};
-g('docFileInp').onchange=function(e){
-  var dn=gv('docDrop');if(!dn)return;
-  var file=e.target.files[0];if(!file)return;
-  toast('Uploading...');
-  uploadToStorage(file,function(err,url){
-    if(err){toast('Upload failed: '+err.message);return;}
-    FDOCS[dn]={file:file.name,dataUrl:url,isUrl:true};
-    g('docDrop').value='';g('docFileInp').value='';
-    buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();
-    toast('Attached: '+file.name);
-  });
+g('docDrop').onchange=function(){
+  var v=gv('docDrop');
+  if(!v){g('docUplLbl').style.display='none';g('docCamBtn').style.display='none';g('docMarkBtn').style.display='none';return;}
+  g('docUplLbl').style.display='';g('docCamBtn').style.display='';g('docMarkBtn').style.display='';
 };
+
+function triggerDocUpload(){
+  var dn=gv('docDrop');
+  if(!dn){toast('Please select a document type first');return;}
+  g('docFileInp').click();
+}
+
+function triggerCustomUpload(){
+  g('customDocFile').click();
+}
+
+function handleDocFile(file){
+  var dn=gv('docDrop');if(!dn)return;
+  toast('Processing...');
+  compressImage(file,function(err,result){
+    if(err){toast('Error: '+err.message);return;}
+    FDOCS[dn]={file:result.fileName, dataUrl:result.dataUrl};
+    g('docDrop').value=''; g('docFileInp').value='';
+    buildDocDD(gv('f_cat')); buildDocChips(); updateDocProg();
+    toast('Attached: '+result.fileName);
+  });
+}
 function readImg(file,cb){var fr=new FileReader();fr.onload=function(e){cb(e.target.result);};fr.readAsDataURL(file);}
 function markDocNoFile(){var dn=gv('docDrop');if(!dn)return;FDOCS[dn]={file:'(received — copy on file)',dataUrl:''};g('docDrop').value='';buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();toast('Marked received: '+dn);}
 function addCustomDoc(){sv('customDocName','');g('customDocFileLbl').innerHTML='<i class="ti ti-upload"></i> Upload';wcDataUrl='';customCamMode=false;openM('mCustomDoc');}
 function openCustomCam(){customCamMode=true;openWebcam();}
 function onCustomDocFile(){
   var file=g('customDocFile').files[0];if(!file)return;
-  toast('Uploading...');
-  uploadToStorage(file,function(err,url){
-    if(err){toast('Upload failed: '+err.message);return;}
-    wcDataUrl=url;
-    g('customDocFileLbl').innerHTML='<i class="ti ti-paperclip"></i> '+file.name;
+  toast('Processing...');
+  compressImage(file,function(err,result){
+    if(err){toast('Error: '+err.message);return;}
+    wcDataUrl=result.dataUrl;
+    g('customDocFileLbl').innerHTML='<i class="ti ti-paperclip"></i> '+result.fileName;
     toast('File ready');
   });
 }
@@ -1049,6 +1074,12 @@ function clearF(){
 }
 
 function init(){
+  /* Wire file inputs here so Chrome triggers onchange reliably */
+  g('docFileInp').onchange=function(e){
+    var file=e.target.files[0];if(!file)return;
+    handleDocFile(file);
+  };
+  g('customDocFile').onchange=function(){onCustomDocFile();};
   g('btnWord').onclick=function(){dlWord(CV);};
   g('btnPdf').onclick=function(){dlPdf(CV);};
   g('btnWA').onclick=function(){dlWA(CV);};
