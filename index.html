@@ -446,6 +446,39 @@ function sbFetch(table, method, body, match) {
   });
 }
 
+
+function uploadToStorage(file, cb) {
+  var ext = file.name.split('.').pop();
+  var fname = Date.now() + '_' + Math.random().toString(36).substr(2,6) + '.' + ext;
+  var url = SB_URL + '/storage/v1/object/documents/' + fname;
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': file.type || 'application/octet-stream',
+      'x-upsert': 'true'
+    },
+    body: file
+  })
+  .then(function(r){
+    if(!r.ok) return r.text().then(function(t){throw new Error(t);});
+    var pub = SB_URL + '/storage/v1/object/public/documents/' + fname;
+    cb(null, pub);
+  })
+  .catch(function(e){cb(e,null);});
+}
+
+function uploadCamToStorage(dataUrl, cb) {
+  var byteStr = atob(dataUrl.split(',')[1]);
+  var ab = new ArrayBuffer(byteStr.length);
+  var ia = new Uint8Array(ab);
+  for(var i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
+  var blob = new Blob([ab],{type:'image/jpeg'});
+  var file = new File([blob],'cam_'+Date.now()+'.jpg',{type:'image/jpeg'});
+  uploadToStorage(file, cb);
+}
+
 var CAT_DOCS = {
   Medical:       ['Recommendation letter','Medical report','Hospital bill','Others (if any)'],
   Accommodation: ['Recommendation letter','Others (if any)'],
@@ -589,16 +622,32 @@ g('docDrop').onchange=function(){var v=gv('docDrop');if(!v){g('docUplLbl').style
 g('docFileInp').onchange=function(e){
   var dn=gv('docDrop');if(!dn)return;
   var file=e.target.files[0];if(!file)return;
-  readImg(file,function(dataUrl){FDOCS[dn]={file:file.name,dataUrl:dataUrl};g('docDrop').value='';g('docFileInp').value='';buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();toast('Attached: '+file.name);});
+  toast('Uploading...');
+  uploadToStorage(file,function(err,url){
+    if(err){toast('Upload failed: '+err.message);return;}
+    FDOCS[dn]={file:file.name,dataUrl:url,isUrl:true};
+    g('docDrop').value='';g('docFileInp').value='';
+    buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();
+    toast('Attached: '+file.name);
+  });
 };
 function readImg(file,cb){var fr=new FileReader();fr.onload=function(e){cb(e.target.result);};fr.readAsDataURL(file);}
 function markDocNoFile(){var dn=gv('docDrop');if(!dn)return;FDOCS[dn]={file:'(received — copy on file)',dataUrl:''};g('docDrop').value='';buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();toast('Marked received: '+dn);}
 function addCustomDoc(){sv('customDocName','');g('customDocFileLbl').innerHTML='<i class="ti ti-upload"></i> Upload';wcDataUrl='';customCamMode=false;openM('mCustomDoc');}
 function openCustomCam(){customCamMode=true;openWebcam();}
-function onCustomDocFile(){var file=g('customDocFile').files[0];if(!file)return;readImg(file,function(du){wcDataUrl=du;g('customDocFileLbl').innerHTML='<i class="ti ti-paperclip"></i> '+file.name;});}
+function onCustomDocFile(){
+  var file=g('customDocFile').files[0];if(!file)return;
+  toast('Uploading...');
+  uploadToStorage(file,function(err,url){
+    if(err){toast('Upload failed: '+err.message);return;}
+    wcDataUrl=url;
+    g('customDocFileLbl').innerHTML='<i class="ti ti-paperclip"></i> '+file.name;
+    toast('File ready');
+  });
+}
 function saveCustomDoc(){
   var nm=gv('customDocName');if(!nm){toast('Please enter a document name');return;}
-  FDOCS[nm]={file:wcDataUrl?'[photo]':gv('customDocName')||'(received)',dataUrl:wcDataUrl||''};
+  FDOCS[nm]={file:wcDataUrl?'[photo/file]':'(received — copy on file)',dataUrl:wcDataUrl||'',isUrl:!!wcDataUrl};
   closeM('mCustomDoc');buildDocChips();updateDocProg();toast('Added: '+nm);
 }
 function buildDocChips(){
@@ -611,7 +660,11 @@ function buildDocChips(){
     var v=FDOCS[dn];var lbl=typeof v==='object'?v.file:v;
     var fn=document.createElement('div');fn.className='doc-chip-file';fn.textContent='\uD83D\uDCCE '+lbl;
     left.appendChild(nm);left.appendChild(fn);
-    if(typeof v==='object'&&v.dataUrl&&v.dataUrl.startsWith('data:image')){var img=document.createElement('img');img.src=v.dataUrl;img.style.cssText='width:100%;max-height:120px;object-fit:contain;border-radius:6px;margin-top:6px;border:1px solid #b2dfb2';left.appendChild(img);}
+    if(typeof v==='object'&&v.dataUrl&&v.dataUrl.length>4){
+      var img=document.createElement('img');img.src=v.dataUrl;
+      img.style.cssText='width:100%;max-height:120px;object-fit:contain;border-radius:6px;margin-top:6px;border:1px solid #b2dfb2';
+      img.onerror=function(){this.style.display='none';};
+      left.appendChild(img);}
     var rb=document.createElement('button');rb.className='btn del sm';rb.innerHTML='<i class="ti ti-x"></i>';
     rb.onclick=function(){FDOCS[dn]=null;buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();};
     chip.appendChild(left);chip.appendChild(rb);el.appendChild(chip);
@@ -642,10 +695,24 @@ function openWebcam(){
 function wcSnap(){var v=g('wcVideo'),c=g('wcCanvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);wcDataUrl=c.toDataURL('image/jpeg',0.85);g('wcPreview').src=wcDataUrl;g('wcPreviewWrap').style.display='block';g('wcSnapBtn').style.display='none';g('wcRetakeBtn').style.display='';g('wcUseBtn').style.display='';g('wcVideo').style.display='none';}
 function wcRetake(){g('wcPreviewWrap').style.display='none';g('wcSnapBtn').style.display='';g('wcRetakeBtn').style.display='none';g('wcUseBtn').style.display='none';g('wcVideo').style.display='block';wcDataUrl='';}
 function wcUse(){
-  if(customCamMode){g('customDocFileLbl').innerHTML='<i class="ti ti-camera"></i> Photo captured';closeWebcam();return;}
+  if(customCamMode){
+    if(!wcDataUrl){closeWebcam();return;}
+    uploadCamToStorage(wcDataUrl,function(err,url){
+      if(err){toast('Upload failed: '+err.message);return;}
+      wcDataUrl=url;
+      g('customDocFileLbl').innerHTML='<i class="ti ti-camera"></i> Photo ready';
+      toast('Photo ready');
+    });
+    closeWebcam();return;
+  }
   var dn=gv('docDrop');if(!dn||!wcDataUrl)return;
-  FDOCS[dn]={file:'[camera photo]',dataUrl:wcDataUrl};
-  closeWebcam();buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();toast('Photo captured for: '+dn);
+  toast('Uploading photo...');
+  uploadCamToStorage(wcDataUrl,function(err,url){
+    if(err){toast('Upload failed: '+err.message);return;}
+    FDOCS[dn]={file:'[camera photo]',dataUrl:url,isUrl:true};
+    closeWebcam();buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();
+    toast('Photo saved for: '+dn);
+  });
 }
 function closeWebcam(){if(wcStream){wcStream.getTracks().forEach(function(t){t.stop();});wcStream=null;}closeM('mWebcam');}
 
@@ -748,7 +815,7 @@ function startEdit(id){
   var sp=document.querySelector('input[name="supp"][value="'+r.supp+'"]');if(sp)sp.checked=true;
   if(r.cat){
     FDOCS={};
-    var ad=r.docs||[];for(var i=0;i<ad.length;i++)FDOCS[ad[i].name]=ad[i].dataUrl?{file:ad[i].file,dataUrl:ad[i].dataUrl}:ad[i].file;
+    var ad=r.docs||[];for(var i=0;i<ad.length;i++)FDOCS[ad[i].name]=ad[i].dataUrl?{file:ad[i].file,dataUrl:ad[i].dataUrl,isUrl:ad[i].isUrl||true}:ad[i].file;
     PAY_E=(r.pay||[]).map(function(p,i){return {id:Date.now()+i,label:p.label,type:p.type||'account',an:p.an||'',anum:p.anum||'',bn:p.bn||'',amt:p.amt||'',link:p.link||'',uname:p.uname||'',pwd:p.pwd||''};});
     g('docSec').style.display='';g('paySec').style.display='';
     buildDocDD(r.cat);buildDocChips();buildPayList();
@@ -828,7 +895,10 @@ function renderDocSec(r,container){
     var nm=document.createElement('div');nm.className='doc-view-name';nm.innerHTML='<i class="ti ti-circle-check" style="color:#2E7D32;vertical-align:-2px;margin-right:4px"></i>'+d.name;
     var fn=document.createElement('div');fn.style.cssText='font-size:12px;color:#2E7D32;margin-top:3px';fn.textContent='\uD83D\uDCCE '+d.file;
     item.appendChild(nm);item.appendChild(fn);
-    if(d.dataUrl&&d.dataUrl.startsWith('data:image')){var img=document.createElement('img');img.src=d.dataUrl;img.className='doc-img';item.appendChild(img);}
+    if(d.dataUrl&&d.dataUrl.length>4){
+      var img=document.createElement('img');img.src=d.dataUrl;img.className='doc-img';
+      img.onerror=function(){this.style.display='none';};
+      item.appendChild(img);}
     container.appendChild(item);
   }
   var missing=cat.filter(function(d){return !all.find(function(a){return a.name===d;});});
