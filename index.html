@@ -635,27 +635,9 @@ g('docDrop').onchange=function(){
   g('docUplLbl').style.display='';g('docCamBtn').style.display='';g('docMarkBtn').style.display='';
 };
 
-function triggerDocUpload(){
-  var dn=gv('docDrop');
-  if(!dn){toast('Please select a document type first');return;}
-  g('docFileInp').click();
-}
 
-function triggerCustomUpload(){
-  g('customDocFile').click();
-}
 
-function handleDocFile(file){
-  var dn=gv('docDrop');if(!dn)return;
-  toast('Processing...');
-  compressImage(file,function(err,result){
-    if(err){toast('Error: '+err.message);return;}
-    FDOCS[dn]={file:result.fileName, dataUrl:result.dataUrl};
-    g('docDrop').value=''; g('docFileInp').value='';
-    buildDocDD(gv('f_cat')); buildDocChips(); updateDocProg();
-    toast('Attached: '+result.fileName);
-  });
-}
+
 function readImg(file,cb){var fr=new FileReader();fr.onload=function(e){cb(e.target.result);};fr.readAsDataURL(file);}
 function markDocNoFile(){var dn=gv('docDrop');if(!dn)return;FDOCS[dn]={file:'(received — copy on file)',dataUrl:''};g('docDrop').value='';buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();toast('Marked received: '+dn);}
 function addCustomDoc(){sv('customDocName','');g('customDocFileLbl').innerHTML='<i class="ti ti-upload"></i> Upload';wcDataUrl='';customCamMode=false;openM('mCustomDoc');}
@@ -1070,6 +1052,37 @@ function clearF(){
   g('docChips').innerHTML='';g('payList').innerHTML='';
   g('docDrop').innerHTML='<option value="">— select a document to add —</option>';
   g('docUplLbl').style.display='none';g('docCamBtn').style.display='none';g('docMarkBtn').style.display='none';
+}
+
+
+function triggerDocUpload(){
+  var dn=gv('docDrop');
+  if(!dn){toast('Please select a document type first');return;}
+  g('docFileInp').click();
+}
+
+function triggerCustomUpload(){
+  g('customDocFile').click();
+}
+
+function handleDocFile(file){
+  var dn=gv('docDrop');if(!dn)return;
+  toast('Processing...');
+  compressImage(file,function(err,result){
+    if(err){toast('Error: '+err.message);return;}
+    FDOCS[dn]={file:result.fileName, dataUrl:result.dataUrl};
+    g('docDrop').value=''; g('docFileInp').value='';
+    buildDocDD(gv('f_cat')); buildDocChips(); updateDocProg();
+    toast('Attached: '+result.fileName);
+  });
+}
+
+function toast(msg){
+  var t=document.getElementById('toast');
+  if(!t) return;
+  t.textContent=msg;
+  t.classList.add('show');
+  setTimeout(function(){t.classList.remove('show');},2800);
 }
 
 function init(){
