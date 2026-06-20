@@ -722,21 +722,20 @@ function wcRetake(){g('wcPreviewWrap').style.display='none';g('wcSnapBtn').style
 function wcUse(){
   if(customCamMode){
     if(!wcDataUrl){closeWebcam();return;}
-    uploadCamToStorage(wcDataUrl,function(err,url){
-      if(err){toast('Upload failed: '+err.message);return;}
-      wcDataUrl=url;
+    compressCam(wcDataUrl,function(err,result){
+      if(err){toast('Error: '+err.message);return;}
+      wcDataUrl=result.dataUrl;
       g('customDocFileLbl').innerHTML='<i class="ti ti-camera"></i> Photo ready';
       toast('Photo ready');
     });
-    closeWebcam();return;
+    closeWebcam(); return;
   }
   var dn=gv('docDrop');if(!dn||!wcDataUrl)return;
-  toast('Uploading photo...');
-  uploadCamToStorage(wcDataUrl,function(err,url){
-    if(err){toast('Upload failed: '+err.message);return;}
-    FDOCS[dn]={file:'[camera photo]',dataUrl:url,isUrl:true};
-    closeWebcam();buildDocDD(gv('f_cat'));buildDocChips();updateDocProg();
-    toast('Photo saved for: '+dn);
+  compressCam(wcDataUrl,function(err,result){
+    if(err){toast('Error: '+err.message);return;}
+    FDOCS[dn]={file:'camera_photo.jpg', dataUrl:result.dataUrl};
+    closeWebcam(); buildDocDD(gv('f_cat')); buildDocChips(); updateDocProg();
+    toast('Photo captured for: '+dn);
   });
 }
 function closeWebcam(){if(wcStream){wcStream.getTracks().forEach(function(t){t.stop();});wcStream=null;}closeM('mWebcam');}
