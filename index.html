@@ -1036,8 +1036,119 @@ function buildTxt(r){
   var sep='='.repeat(56);
   return 'Friends of Jesus\nINTERACTIVE SESSION REPORT\n'+sep+'\nStatus: '+r.status+'    Category: '+r.cat+'\nSaved: '+r.at+(r.upd?'    Updated: '+r.upd:'')+'\n\nSESSION DETAILS\nDate: '+r.date+'  Primary Inv.: '+(r.inv1||'—')+'  Supporting: '+(r.inv2||'—')+'\nWritten by: '+(r.by||'—')+'\n\nAPPLICANT\nName: '+r.name+'  Phone: '+(r.phone||'—')+'\nAge: '+(r.age||'—')+'  Gender: '+(r.gender||'—')+'  Marital: '+(r.marital||'—')+'\nOrigin: '+(r.origin||'—')+'  Children: '+(r.kids||'—')+'  Occupation: '+(r.job||'—')+'\nAddress: '+(r.address||'—')+'\n\nCHURCH\nParish: '+(r.parish||'—')+'  Dept: '+(r.dept||'—')+"\nPastor: "+(r.pastor||'—')+'  Ph: '+(r.pastorph||'—')+'\nChurch aware: '+r.aware+'  Supportive: '+r.supp+'\n\nREQUEST\n'+(r.req||'—')+'\n'+(r.reqd||'—')+'\n\nOBSERVATIONS\nConcerns: '+(r.concerns||'—')+'\nRecommendation: '+(r.rec||'—')+'\n\nDOCUMENTS\n'+(dl||'  None')+'\nPAYMENT\n'+(pl||'  None')+'\nACTIVITY LOG\n'+(al||'  None')+'\n'+sep+'\nGenerated: '+new Date().toLocaleString();
 }
-function dlWord(r){if(!r)return;var b=new Blob([buildTxt(r)],{type:'application/msword'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FOJ_'+r.name.replace(/\s+/g,'_')+'_'+r.date+'.doc';a.click();toast('Downloaded');}
-function dlPdf(r){if(!r)return;var win=window.open('','_blank');if(!win){toast('Allow popups');return;}var safe=buildTxt(r).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');win.document.open();win.document.write('<!DOCTYPE html><html><head><title>FOJ</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:13px;line-height:1.8;padding:40px;max-width:740px;margin:0 auto}pre{white-space:pre-wrap;font-family:Calibri,Arial,sans-serif;font-size:13px}</style></head><body><pre>'+safe+'</pre></body></html>');win.document.close();setTimeout(function(){win.print();},600);toast('PDF dialog opened');}
+function buildHtmlDoc(r){
+  var all = r.docs || [];
+  var cat = CAT_DOCS[r.cat] || [];
+  var pay = r.pay || [];
+  var acts = getActs(r.id);
+
+  /* document rows */
+  var docRows = '';
+  for(var i=0;i<all.length;i++){
+    var d = all[i];
+    var imgHtml = '';
+    if(d.dataUrl && d.dataUrl.length > 4){
+      imgHtml = '<br><img src="'+d.dataUrl+'" style="max-width:500px;max-height:400px;object-fit:contain;border:1px solid #ccc;border-radius:4px;margin-top:6px;display:block">';
+    }
+    docRows += '<tr><td style="padding:6px 10px;border:1px solid #ddd;font-weight:600;color:#2E7D32">'+d.name+'</td><td style="padding:6px 10px;border:1px solid #ddd">'+d.file+imgHtml+'</td></tr>';
+  }
+  /* missing docs */
+  var missing = cat.filter(function(d){return !all.find(function(a){return a.name===d;});});
+  for(var i=0;i<missing.length;i++){
+    docRows += '<tr><td style="padding:6px 10px;border:1px solid #ddd;color:#999">'+missing[i]+'</td><td style="padding:6px 10px;border:1px solid #ddd;color:#999;font-style:italic">Not yet received</td></tr>';
+  }
+
+  /* payment rows */
+  var payRows = '';
+  for(var i=0;i<pay.length;i++){
+    var d = pay[i]; var isP = d.type==='portal';
+    var amtStr = d.amt ? ' &nbsp;<strong style="color:#D62B2B">NGN '+Number(d.amt).toLocaleString()+'</strong>' : '';
+    if(isP){
+      payRows += '<tr><td style="padding:6px 10px;border:1px solid #ddd;font-weight:600;color:#1A4FA0">'+d.label+amtStr+'</td><td style="padding:6px 10px;border:1px solid #ddd">Portal: '+(d.link||'—')+'<br>Username: '+(d.uname||'—')+'<br>Password: '+(d.pwd||'—')+'</td></tr>';
+    } else {
+      payRows += '<tr><td style="padding:6px 10px;border:1px solid #ddd;font-weight:600;color:#1A4FA0">'+d.label+amtStr+'</td><td style="padding:6px 10px;border:1px solid #ddd">Account name: '+(d.an||'—')+'<br>Account number: '+(d.anum||'—')+'<br>Bank: '+(d.bn||'—')+'</td></tr>';
+    }
+  }
+
+  /* activity rows */
+  var actRows = '';
+  for(var i=0;i<acts.length;i++){
+    var a = acts[i];
+    var actionLabel = a.action==='approve'?'APPROVED':a.action==='reject'?'REJECTED':a.action==='close'?'CLOSED':'COMMENTED';
+    var rowColor = a.action==='approve'?'#E8F5E9':a.action==='reject'?'#FDEAEA':'#E8EEF9';
+    actRows += '<tr style="background:'+rowColor+'"><td style="padding:6px 10px;border:1px solid #ddd;font-weight:600">'+a.actor+'</td><td style="padding:6px 10px;border:1px solid #ddd">'+roleLabel(a.role)+'</td><td style="padding:6px 10px;border:1px solid #ddd">'+actionLabel+'</td><td style="padding:6px 10px;border:1px solid #ddd">'+(a.note||'—')+'</td><td style="padding:6px 10px;border:1px solid #ddd;font-size:11px">'+a.ts+'</td></tr>';
+  }
+
+  function row(label, value){
+    return '<tr><td style="padding:6px 10px;border:1px solid #ddd;background:#f5f7ff;font-weight:600;width:35%;color:#5a6380;font-size:12px;text-transform:uppercase">'+label+'</td><td style="padding:6px 10px;border:1px solid #ddd">'+value+'</td></tr>';
+  }
+
+  var statusColor = r.status==='Approved'?'#2E7D32':r.status==='Rejected'?'#D62B2B':r.status==='Closed'?'#2a2a2a':'#1A4FA0';
+
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8">'+
+    '<title>FOJ Report — '+r.name+'</title>'+
+    '<style>body{font-family:Calibri,Arial,sans-serif;font-size:13px;color:#1a1a2e;padding:30px;max-width:800px;margin:0 auto}'+
+    'h1{font-size:20px;color:#1A4FA0;margin:0}h2{font-size:14px;color:#1A4FA0;margin:16px 0 6px;padding:6px 10px;background:#E8EEF9;border-left:4px solid #1A4FA0}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:16px}'+
+    '.hdr{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1A4FA0;padding-bottom:12px;margin-bottom:20px}'+
+    '.badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;background:'+statusColor+'}'+
+    '</style></head><body>'+
+    '<div class="hdr">'+
+    '<div><h1>Friends of Jesus</h1><p style="margin:2px 0;font-size:12px;color:#5a6380">Applicants Interactive Session Report</p></div>'+
+    '<div style="margin-left:auto;text-align:right"><span class="badge">'+r.status+'</span><p style="margin:4px 0;font-size:12px;color:#5a6380">'+r.cat+' case</p></div>'+
+    '</div>'+
+
+    '<h2>Session Details</h2>'+
+    '<table>'+row('Date',r.date)+row('Primary investigator',r.inv1||'—')+row('Supporting investigator',r.inv2||'—')+row('Written by',r.by||'—')+'</table>'+
+
+    '<h2>Applicant Information</h2>'+
+    '<table>'+row('Full name',r.name)+row('Phone',r.phone||'—')+row('Age',r.age||'—')+row('Gender',r.gender||'—')+row('Marital status',r.marital||'—')+row('Place of origin',r.origin||'—')+row('No. of children',r.kids||'—')+row('Occupation',r.job||'—')+row('Residential address',r.address||'—')+'</table>'+
+
+    '<h2>Church Details</h2>'+
+    '<table>'+row('Parish',r.parish||'—')+row('Department',r.dept||'—')+row("Pastor's name",r.pastor||'—')+row("Pastor's phone",r.pastorph||'—')+row('Church aware?',r.aware)+row('Church supportive?',r.supp)+'</table>'+
+
+    '<h2>Request Details</h2>'+
+    '<table>'+row('Request',r.req||'—')+row('Details',r.reqd||'—')+'</table>'+
+
+    '<h2>Session Observations</h2>'+
+    '<table>'+row('Concerns',r.concerns||'—')+row('Recommendation',r.rec||'—')+'</table>'+
+
+    '<h2>Supporting Documents ('+all.length+' received)</h2>'+
+    '<table><tr style="background:#1A4FA0;color:#fff"><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Document</th><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Status / File</th></tr>'+docRows+'</table>'+
+
+    '<h2>Payment &amp; Disbursement Details</h2>'+
+    (payRows?'<table><tr style="background:#1A4FA0;color:#fff"><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Account</th><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Details</th></tr>'+payRows+'</table>':'<p style="color:#aaa;font-style:italic">No payment details provided.</p>')+
+
+    '<h2>Approval &amp; Activity Log</h2>'+
+    (actRows?'<table><tr style="background:#1A4FA0;color:#fff"><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Person</th><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Role</th><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Action</th><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Comment</th><th style="padding:8px 10px;text-align:left;border:1px solid #ddd">Time</th></tr>'+actRows+'</table>':'<p style="color:#aaa;font-style:italic">No activity yet.</p>')+
+
+    '<p style="font-size:11px;color:#aaa;margin-top:20px;border-top:1px solid #eee;padding-top:10px">Generated: '+new Date().toLocaleString()+'</p>'+
+    '</body></html>';
+}
+
+function dlWord(r){
+  if(!r) return;
+  var html = buildHtmlDoc(r);
+  var blob = new Blob([html], {type:'application/msword'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'FOJ_' + r.name.replace(/\s+/g,'_') + '_' + r.date + '.doc';
+  a.click();
+  toast('Word document downloaded');
+}
+
+function dlPdf(r){
+  if(!r) return;
+  var win = window.open('','_blank');
+  if(!win){toast('Allow popups to download PDF');return;}
+  var html = buildHtmlDoc(r);
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  setTimeout(function(){win.print();}, 800);
+  toast('PDF dialog opened');
+}
+
 function dlWA(r){if(!r)return;var t=encodeURIComponent('*Friends of Jesus*\n\n*Applicant:* '+r.name+'\n*Category:* '+r.cat+'\n*Date:* '+r.date+'\n*Status:* '+r.status+'\n*Request:* '+(r.req||'—'));window.open('https://wa.me/?text='+t,'_blank');}
 function dlMail(r){if(!r)return;var s=encodeURIComponent('FOJ Report — '+r.name);var b=encodeURIComponent(buildTxt(r));window.open('mailto:?subject='+s+'&body='+b);}
 function dlCopy(r){if(!r)return;navigator.clipboard.writeText(buildTxt(r)).then(function(){toast('Copied');}).catch(function(){toast('Copy failed');});}
